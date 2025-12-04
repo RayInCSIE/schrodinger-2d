@@ -35,12 +35,14 @@ void Texture::update(std::function<void(int*)> callback) {
 bool Window::_initialized = false;
 
 Window::Window(int width, int height) {
+    _width = width;
+    _height = height;
+    _closed = false;
     if (!_initialized) {
         SDL_Init(SDL_INIT_VIDEO);
         _initialized = true;
     }
     SDL_CreateWindowAndRenderer(width, height, 0, &_window, &_renderer);
-    _closed = false;
 }
 
 Window::~Window() {
