@@ -3,15 +3,21 @@ NVCC = nvcc
 LDLIBS = -lSDL2
 CUDAFLAG = -O3
 
-.PHONY: all clean
+ifdef HEADLESS
+CXXFLAGS += -DHEADLESS
+CUDAFLAG += -DHEADLESS
+LDLIBS =
+OBJ_FILES =
+endif
 
 all: sequential cuda
 
-sequential: sequential.cpp window.o
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDLIBS)
+sequential: sequential.cpp $(OBJ_FILES)
+	$(CXX) $(CXXFLAGS) -o $@ sequential.cpp $(OBJ_FILES) $(LDLIBS)
 
-cuda: cuda.cu window.o
-	$(NVCC) $(CUDAFLAG) -o $@ $^ $(LDLIBS)
+cuda: cuda.cu $(OBJ_FILES)
+	$(NVCC) $(CUDAFLAG) -o $@ cuda.cu $(OBJ_FILES) $(LDLIBS)
+
 
 window.o: window.cpp window.h
 	$(CXX) $(CXXFLAGS) -c $<

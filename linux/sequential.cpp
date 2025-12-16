@@ -1,7 +1,15 @@
+#ifndef HEADLESS
 #include "window.h"
+#endif
+
 #include <cmath>
 #include <complex>
 #include <vector>
+
+#include <vector>
+#include <iostream>
+#include <fstream>
+#include <string>
 
 using namespace std::complex_literals;
 
@@ -81,21 +89,75 @@ int complex2rgba(std::complex<double> z) {
     return rgba(r, g, b, 1);
 }
 
-int main() {
+void write_header(std::ofstream &out, int width, int height, int frames) {
+    const char magic[] = "SCHR";
+    out.write(magic, 4);
+    out.write(reinterpret_cast<const char *>(&width), sizeof(int));
+    out.write(reinterpret_cast<const char *>(&height), sizeof(int));
+    out.write(reinterpret_cast<const char *>(&frames), sizeof(int));
+}
+
+void write_frame(std::ofstream &out,
+                 const std::vector<std::complex<double>> &wave) {
+    out.write(reinterpret_cast<const char *>(wave.data()),
+              wave.size() * sizeof(std::complex<double>));
+}
+
+int main(int argc, char *argv[]) {
+    constexpr int sim_w = 256;
+    constexpr int sim_h = 256;
+    Simulation sim(sim_w, sim_h, sim_w / 4, sim_h / 2, 100, 1, 0.01, 1, 0);
+
+    if (argc > 1) {
+        if (std::string(argv[1]) == "--batch") {
+            if (argc < 5) {
+                std::cerr
+                    << "Usage: " << argv[0]
+                    << " --batch <output_file> <num_frames> <steps_per_frame>"
+                    << std::endl;
+                return 1;
+            }
+            std::string output_file = argv[2];
+            int num_frames = std::stoi(argv[3]);
+            int steps_per_frame = std::stoi(argv[4]);
+
+            std::ofstream out(output_file, std::ios::binary);
+            if (!out) {
+                std::cerr << "Failed to open output file: " << output_file
+                          << std::endl;
+                return 1;
+            }
+
+            write_header(out, sim_w, sim_h, num_frames);
+            std::cout << "Running batch mode: " << num_frames << " frames, "
+                      << steps_per_frame << " steps/frame" << std::endl;
+
+            for (int i = 0; i < num_frames; ++i) {
+                for (int j = 0; j < steps_per_frame; ++j) {
+                    sim.step(0.01);
+                }
+                write_frame(out, sim.wave());
+                if (i % 10 == 0)
+                    std::cout << "Frame " << i << "/" << num_frames << "\r"
+                              << std::flush;
+            }
+            std::cout << "Batch simulation complete." << std::endl;
+            return 0;
+        }
+    }
+
+#ifndef HEADLESS
     Window window(1280, 960);
     Texture &background = window.create_texture(1, 1);
     background.move(0, 0);
     background.resize(window.width(), window.height());
     background.update([](int *color) { *color = 0x333333ff; });
 
-    constexpr int sim_w = 256;
-    constexpr int sim_h = 256;
     constexpr double aspect = (double)sim_w / sim_h;
     Texture &wave_plot = window.create_texture(sim_w, sim_h);
     wave_plot.move(0, 0);
     wave_plot.resize(window.height() * aspect, window.height());
 
-    Simulation sim(sim_w, sim_h, sim_w / 4, sim_h / 2, 100, 1, 0.01, 1, 0);
     while (!window.closed()) {
         for (int i = 0; i < 200; i++) sim.step(0.01);
         auto &wave = sim.wave();
@@ -105,5 +167,9 @@ int main() {
         });
         window.update();
     }
+#else
+    std::cout << "Compiled in HEADLESS mode. GUI not available." << std::endl;
+    std::cout << "Use --batch to run simulation." << std::endl;
+#endif
     return 0;
 }
