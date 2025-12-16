@@ -3,3 +3,4 @@ linux/cuda
 linux/sequential
 linux/out.bin
 linux/output.mp4
+linux/window.o
