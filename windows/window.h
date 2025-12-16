@@ -11,14 +11,14 @@ class Texture {
     int _width, _height;
     SDL_Rect _rect;
 
-public:
+   public:
     Texture(int width, int height);
     ~Texture();
     int width() const;
     int height() const;
     void move(int x, int y);
     void resize(int w, int h);
-    void update(std::function<void(int*)> callback);
+    void update(std::function<void(int *)> callback);
     friend class Window;
 };
 
@@ -31,15 +31,14 @@ class Window {
     SDL_Event _event;
     std::list<Texture> _textures;
 
-public:
+   public:
     Window(int width, int height);
     ~Window();
     int width() const;
     int height() const;
     bool closed() const;
     void update();
-    Texture& create_texture(int width, int height);
+    Texture &create_texture(int width, int height);
 };
 
-#endif // WINDOW_H
-
+#endif  // WINDOW_H

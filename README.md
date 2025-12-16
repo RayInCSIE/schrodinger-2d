@@ -29,4 +29,27 @@ nmake # build all
 
 > Note: Windows paths may vary depending on your setup. Make sure to update the Makefile with the correct include/library paths for SDL2 and CUDA on your machine.
 
+## Batch Mode & Visualization
 
+You can run the simulation in batch mode to generate a trajectory file without opening a window (useful for benchmarking or headless servers).
+
+```bash
+./sequential --batch out.bin 100 50
+./cuda --batch out.bin 100 50
+```
+Arguments: `output_file`, `num_frames`, `steps_per_frame`.
+
+To visualize the result:
+```bash
+python3 visualizer.py out.bin
+```
+
+## Troubleshooting
+
+If you are on a system without SDL2 installed (e.g., a server), you can compile in **Headless Mode**:
+
+```bash
+make sequential HEADLESS=1
+make cuda HEADLESS=1
+```
+This disables the GUI window code entirely.
