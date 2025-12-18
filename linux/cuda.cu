@@ -37,11 +37,24 @@ __global__ void gpu_init(int width, int height, double _grid_size, int cx,
     _wave[j + i * width] = mag * exp(ikx);
 }
 
+__global__ void set_rect_potential_kernel(double *potential, int width,
+                                          int height, int x_min, int x_max,
+                                          int y_min, int y_max, double value) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x;  // x coordinate
+    int i = blockIdx.y * blockDim.y + threadIdx.y;  // y coordinate
+
+    if (i >= y_min && i < y_max && j >= x_min && j < x_max && i < height &&
+        j < width) {
+        potential[j + i * width] = value;
+    }
+}
+
 // Optimization: Use Shared Memory for stencil computation
 __global__ void step_kernel_shared(
     double dt_as, int height, int width, double h2, int mass,
     thrust::complex<double> *__restrict__ wave,
-    thrust::complex<double> *__restrict__ new_wave) {
+    thrust::complex<double> *__restrict__ new_wave,
+    double *__restrict__ potential) {
     double dt = dt_as / 24.1888;
 
     // Block size is assumed to be 32x32
@@ -108,8 +121,10 @@ __global__ void step_kernel_shared(
         laplacian /= h2;
 
         thrust::complex<double> i_unit(0.0, 1.0);
-        new_wave[gx + gy * width] =
-            val + i_unit * (laplacian / (2 * mass)) * dt;
+        thrust::complex<double> kinetic = laplacian / (2 * mass);
+        int idx = gx + gy * width;
+        thrust::complex<double> potential_term = potential[idx] * val;
+        new_wave[idx] = val + i_unit * (kinetic - potential_term) * dt;
     }
 }
 
@@ -149,6 +164,7 @@ class GPUSimulation {
     double _grid_size, _mass;
     int *_gpu_pixels;
     thrust::complex<double> *_wave, *_new_wave;
+    double *_potential;
     dim3 block, grid;
 
     void _normalize();
@@ -169,10 +185,12 @@ class GPUSimulation {
         cudaMalloc(&_new_wave,
                    width * height * sizeof(thrust::complex<double>));
         cudaMalloc(&_gpu_pixels, width * height * sizeof(int));
+        cudaMalloc(&_potential, width * height * sizeof(double));
         cudaMemset(_wave, 0, width * height * sizeof(thrust::complex<double>));
         cudaMemset(_new_wave, 0,
                    width * height * sizeof(thrust::complex<double>));
         cudaMemset(_gpu_pixels, 0, width * height * sizeof(int));
+        cudaMemset(_potential, 0, width * height * sizeof(double));
 
         gpu_init<<<grid, block>>>(width, height, _grid_size, cx, cy, a, kx, ky,
                                   _wave);
@@ -184,7 +202,7 @@ class GPUSimulation {
         double h2 = _grid_size * _grid_size;
 
         step_kernel_shared<<<grid, block>>>(dt, _height, _width, h2, _mass,
-                                            _wave, _new_wave);
+                                            _wave, _new_wave, _potential);
 
         // _wave.swap(_new_wave);
         thrust::complex<double> *temp = _wave;
@@ -209,9 +227,23 @@ class GPUSimulation {
         return _gpu_pixels;
     }
 
+    void add_barrier(int x_min, int x_max, int y_min, int y_max,
+                     double height) {
+        set_rect_potential_kernel<<<grid, block>>>(
+            _potential, _width, _height, x_min, x_max, y_min, y_max, height);
+        cudaDeviceSynchronize();
+    }
+
+    void clear_barrier(int x_min, int x_max, int y_min, int y_max) {
+        set_rect_potential_kernel<<<grid, block>>>(
+            _potential, _width, _height, x_min, x_max, y_min, y_max, 0.0);
+        cudaDeviceSynchronize();
+    }
+
     ~GPUSimulation() {
         cudaFree(_wave);
         cudaFree(_new_wave);
+        cudaFree(_potential);
     }
 };
 
@@ -249,7 +281,24 @@ void GPUSimulation::_normalize() {
 int main(int argc, char *argv[]) {
     constexpr int sim_w = 256;
     constexpr int sim_h = 256;
-    GPUSimulation sim(sim_w, sim_h, sim_w / 4, sim_h / 2, 100, 1, 0.01, 1, 0);
+
+    GPUSimulation sim(sim_w, sim_h, sim_w / 8, sim_h / 2, 100, 1, 0.002, 1.5,
+                      0);
+
+    // Create double-slit barrier at x=80
+    sim.add_barrier(100, 105, 0, sim_h, 10.0);  // V=10.0 eV (impenetrable)
+
+    int slit_width = 8;
+    int slit_separation = 40;
+    int slit1_center = sim_h / 2 - slit_separation / 2;
+    int slit2_center = sim_h / 2 + slit_separation / 2;
+
+    // Create slit 1
+    sim.clear_barrier(100, 105, slit1_center - slit_width / 2,
+                      slit1_center + slit_width / 2);
+    // Create slit 2
+    sim.clear_barrier(100, 105, slit2_center - slit_width / 2,
+                      slit2_center + slit_width / 2);
 
     if (argc > 1) {
         if (std::string(argv[1]) == "--batch") {
