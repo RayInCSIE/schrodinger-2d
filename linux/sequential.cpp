@@ -18,6 +18,7 @@ class Simulation {
     int _width, _height;
     double _grid_size, _mass;
     std::vector<std::complex<double>> _wave, _new_wave;
+    std::vector<double> _potential;  // Potential energy V(x,y)
 
     void _normalize() {
         double integral = 0;
@@ -35,6 +36,8 @@ class Simulation {
         _mass = mass_me;
         _wave.resize(width * height);
         _new_wave.resize(width * height);
+        _potential.resize(width * height, 0.0);  // Initialize potential to zero
+
         for (int i = 1; i < height - 1; i++) {
             for (int j = 1; j < width - 1; j++) {
                 double dx = (j - cx) * _grid_size;
@@ -46,6 +49,25 @@ class Simulation {
             }
         }
         _normalize();
+    }
+
+    // Add a rectangular potential barrier
+    void add_barrier(int x_min, int x_max, int y_min, int y_max,
+                     double height) {
+        for (int i = y_min; i < y_max && i < _height; i++) {
+            for (int j = x_min; j < x_max && j < _width; j++) {
+                _potential[j + i * _width] = height;
+            }
+        }
+    }
+
+    // Clear barrier (set potential to 0) in a region
+    void clear_barrier(int x_min, int x_max, int y_min, int y_max) {
+        for (int i = y_min; i < y_max && i < _height; i++) {
+            for (int j = x_min; j < x_max && j < _width; j++) {
+                _potential[j + i * _width] = 0.0;
+            }
+        }
     }
 
     const auto &wave() { return _wave; };
@@ -62,7 +84,10 @@ class Simulation {
                 laplacian += _wave[k - _width];
                 laplacian += _wave[k + _width];
                 laplacian /= h2;
-                _new_wave[k] = _wave[k] + 1i * (laplacian / (2 * _mass)) * dt;
+                // Add potential energy term: H = T + V
+                auto kinetic = laplacian / (2 * _mass);
+                auto potential_term = _potential[k] * _wave[k];
+                _new_wave[k] = _wave[k] + 1i * (kinetic - potential_term) * dt;
             }
         }
         _wave.swap(_new_wave);
@@ -82,7 +107,7 @@ int complex2rgba(std::complex<double> z) {
     double a = std::abs(z);
     double y = std::atan(a) / M_PI;
     if (a < 1e-9 || y < 0.01) {
-        return rgba(0.2, 0.2, 0.2, 1);
+        return rgba(0.0, 0.0, 0.0, 1);  // Black background
     }
     z *= 0.5 * y / a;
     double u = std::real(z);
@@ -99,15 +124,31 @@ int complex2rgba(std::complex<double> z) {
 int main(int argc, char *argv[]) {
     constexpr int sim_w = 256;
     constexpr int sim_h = 256;
-    Simulation sim(sim_w, sim_h, sim_w / 4, sim_h / 2, 100, 1, 0.01, 1, 0);
+
+    Simulation sim(sim_w, sim_h, sim_w / 8, sim_h / 2, 100, 1, 0.002, 1.5, 0);
+
+    // Create double-slit barrier at x=80
+    sim.add_barrier(100, 105, 0, sim_h, 10.0);
+
+    int slit_width = 8;
+    int slit_separation = 40;
+    int slit1_center = sim_h / 2 - slit_separation / 2;
+    int slit2_center = sim_h / 2 + slit_separation / 2;
+
+    // Create slit 1
+    sim.clear_barrier(100, 105, slit1_center - slit_width / 2,
+                      slit1_center + slit_width / 2);
+    // Create slit 2
+    sim.clear_barrier(100, 105, slit2_center - slit_width / 2,
+                      slit2_center + slit_width / 2);
 
     if (argc > 1) {
         if (std::string(argv[1]) == "--batch") {
             if (argc < 6) {
-                std::cerr
-                    << "Usage: " << argv[0]
-                    << " --batch <output_file> <num_frames> <steps_per_frame> <fps>"
-                    << std::endl;
+                std::cerr << "Usage: " << argv[0]
+                          << " --batch <output_file> <num_frames> "
+                             "<steps_per_frame> <fps>"
+                          << std::endl;
                 return 1;
             }
             std::string output_file = argv[2];
@@ -115,9 +156,12 @@ int main(int argc, char *argv[]) {
             int steps_per_frame = std::stoi(argv[4]);
             int fps = std::stoi(argv[5]);
 
-            cv::VideoWriter writer(output_file, cv::VideoWriter::fourcc('H','2','6','4'), fps, cv::Size(sim_w, sim_h));
+            cv::VideoWriter writer(output_file,
+                                   cv::VideoWriter::fourcc('H', '2', '6', '4'),
+                                   fps, cv::Size(sim_w, sim_h));
             if (!writer.isOpened()) {
-                std::cerr << "Failed to open video writer: " << output_file << std::endl;
+                std::cerr << "Failed to open video writer: " << output_file
+                          << std::endl;
                 return 1;
             }
 
